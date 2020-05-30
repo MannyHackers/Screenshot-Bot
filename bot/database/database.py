@@ -2,12 +2,13 @@ import datetime
 
 import motor.motor_asyncio
 
+from config import Config
 
 class Database:
     
-    def __init__(self, uri, database_name):
+    def __init__(self, uri):
         self._client = motor.motor_asyncio.AsyncIOMotorClient(uri)
-        self.db = self._client[database_name]
+        self.db = self._client[Config.SESSION_NAME]
         self.col = self.db.users
     
     
