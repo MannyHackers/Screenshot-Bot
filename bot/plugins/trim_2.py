@@ -1,17 +1,17 @@
 import asyncio
 
-from pyrogram import Filters, ForceReply
+from pyrogram import Client, Filters, ForceReply
 
-from ..config import Config
+from config import Config
 from ..utils import trim_fn
-from ..screenshotbot import ScreenShotBot
+from bot import db
 
 
-@ScreenShotBot.on_message(Filters.private & Filters.reply)
+@Client.on_message(Filters.private & Filters.reply)
 async def _(c, m):
     
-    if not await c.db.is_user_exist(m.chat.id):
-        await c.db.add_user(m.chat.id)
+    if not await db.is_user_exist(m.chat.id):
+        await db.add_user(m.chat.id)
         await c.send_message(
             Config.LOG_CHANNEL,
             f"New User [{m.from_user.first_name}](tg://user?id={m.chat.id}) started."
