@@ -12,7 +12,8 @@ import traceback
 from pyrogram import InputMediaPhoto, InlineKeyboardMarkup, InlineKeyboardButton
 from pyrogram.errors import FloodWait
 
-from ..config import Config
+from config import Config
+from bot import user, db, CURRENT_PROCESSES
 
 
 
@@ -54,22 +55,19 @@ async def generate_thumbnail_file(file_path, uid):
         return None
     return thumb_file
 
-
-def pack_id(msg):
-    file_id = 0
-    chat_id_offset = 2
-    pack_bits = 32
-    msg_id_offset = pack_bits + chat_id_offset
-    
-    file_id |= msg.chat.id << chat_id_offset
-    file_id |= msg.message_id << msg_id_offset
-    return file_id
-
-
-def generate_stream_link(media_msg):
-    file_id = pack_id(media_msg)
-    return f"{Config.HOST}/stream/{file_id}"
-
+async def generate_stream_link(media_msg):
+    middle_msg = await media_msg.forward(Config.MIDDLE_MAN)
+    middle_msg = await user.get_messages(Config.MIDDLE_MAN, middle_msg.message_id)
+    link_req_msg = await middle_msg.forward(Config.LINK_GEN_BOT)
+    await user.read_history(Config.LINK_GEN_BOT)
+    await asyncio.sleep(2)
+    link_msg = None
+    async for mes in user.iter_history(Config.LINK_GEN_BOT, limit=10):
+        if mes.reply_to_message and mes.reply_to_message.message_id == link_req_msg.message_id:
+            link_msg = mes
+    if link_msg is None:
+        return None
+    return link_msg.text
 
 async def get_dimentions(input_file_link):
     ffprobe_cmd = f"ffprobe -v error -show_entries stream=width,height -of csv=p=0:s=x -select_streams v:0 {shlex.quote(input_file_link)}"
@@ -128,13 +126,13 @@ async def edit_message_text(m, **kwargs):
 async def display_settings(c, m, cb=False):
     chat_id = m.from_user.id if cb else m.chat.id
     
-    as_file = await c.db.is_as_file(chat_id)
-    as_round = await c.db.is_as_round(chat_id)
-    watermark_text = await c.db.get_watermark_text(chat_id)
-    sample_duration = await c.db.get_sample_duration(chat_id)
-    watermark_color_code = await c.db.get_watermark_color(chat_id)
-    screenshot_mode = await c.db.get_screenshot_mode(chat_id)
-    font_size = await c.db.get_font_size(chat_id)
+    as_file = await db.is_as_file(chat_id)
+    as_round = await db.is_as_round(chat_id)
+    watermark_text = await db.get_watermark_text(chat_id)
+    sample_duration = await db.get_sample_duration(chat_id)
+    watermark_color_code = await db.get_watermark_color(chat_id)
+    screenshot_mode = await db.get_screenshot_mode(chat_id)
+    font_size = await db.get_font_size(chat_id)
     
     sv_btn = [
         InlineKeyboardButton("Sample Video Duration", 'rj'),
@@ -189,12 +187,12 @@ async def display_settings(c, m, cb=False):
 async def screenshot_fn(c, m):
     
     chat_id = m.from_user.id
-    if c.CURRENT_PROCESSES.get(chat_id, 0) == Config.MAX_PROCESSES_PER_USER:
+    if CURRENT_PROCESSES.get(chat_id, 0) == Config.MAX_PROCESSES_PER_USER:
         await m.answer('You have reached the maximum parallel processes! Try again after one of them finishes.', show_alert=True)
         return
-    if not c.CURRENT_PROCESSES.get(chat_id):
-        c.CURRENT_PROCESSES[chat_id] = 0
-    c.CURRENT_PROCESSES[chat_id] += 1
+    if not CURRENT_PROCESSES.get(chat_id):
+        CURRENT_PROCESSES[chat_id] = 0
+    CURRENT_PROCESSES[chat_id] += 1
     
     _, num_screenshots = m.data.split('+')
     num_screenshots = int(num_screenshots)
@@ -202,7 +200,7 @@ async def screenshot_fn(c, m):
     #print(media_msg)
     if media_msg.empty:
         await edit_message_text(m, text='Why did you delete the file 😠, Now i cannot help you 😒.')
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
         return
     
     uid = str(uuid.uuid4())
@@ -227,7 +225,13 @@ async def screenshot_fn(c, m):
         if typ == 2:
             file_link = media_msg.text
         else:
-            file_link = generate_stream_link(media_msg)
+            file_link = await generate_stream_link(media_msg)
+            if file_link is None:
+                await edit_message_text(m, text="😟 Sorry! I cannot help you right now, I'm having hard time processing the file.")
+                l = await media_msg.forward(Config.LOG_CHANNEL)
+                await l.reply_text(f'@{Config.LINK_GEN_BOT} did not respond with stream url', True)
+                CURRENT_PROCESSES[chat_id] -= 1
+                return
         
         await edit_message_text(m, text='😀 Generating screenshots!')
         
@@ -236,18 +240,18 @@ async def screenshot_fn(c, m):
             await edit_message_text(m, text="😟 Sorry! I cannot open the file.")
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\nRequested screenshots: {num_screenshots} \n\n{duration}', True)
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
 
         reduced_sec = duration - int(duration*2 / 100)
         print(f"Total seconds: {duration}, Reduced seconds: {reduced_sec}")
         screenshots = []
-        watermark = await c.db.get_watermark_text(chat_id)
-        watermark_color_code = await c.db.get_watermark_color(chat_id)
+        watermark = await db.get_watermark_text(chat_id)
+        watermark_color_code = await db.get_watermark_color(chat_id)
         watermark_color = Config.COLORS[watermark_color_code]
-        as_file = await c.db.is_as_file(chat_id)
-        screenshot_mode = await c.db.get_screenshot_mode(chat_id)
-        font_size = await c.db.get_font_size(chat_id)
+        as_file = await db.is_as_file(chat_id)
+        screenshot_mode = await db.get_screenshot_mode(chat_id)
+        font_size = await db.get_font_size(chat_id)
         ffmpeg_errors = ''
         
         if screenshot_mode == 0:
@@ -293,7 +297,7 @@ async def screenshot_fn(c, m):
                 os.remove(error_file)
             else:
                 await l.reply_text(f'stream link : {file_link}\n\n{num_screenshots} screenshots where requested and Screen shots where not generated.', True)
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
         
         await edit_message_text(m, text=f'🤓 You requested {num_screenshots} screenshots and {len(screenshots)} screenshots generated, Now starting to upload!')
@@ -306,8 +310,8 @@ async def screenshot_fn(c, m):
         else:
             await media_msg.reply_media_group(screenshots, True)
         
-        await edit_message_text(m, text=f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\nIf You find me helpful, please rate me [here](tg://resolve?domain=botsarchive&post=1206)')
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        await edit_message_text(m, text=f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\n©️ @odbots  @TGBotsZ  @InFoTelGroup')
+        CURRENT_PROCESSES[chat_id] -= 1
         
     except:
         traceback.print_exc()
@@ -315,22 +319,22 @@ async def screenshot_fn(c, m):
         
         l = await media_msg.forward(Config.LOG_CHANNEL)
         await l.reply_text(f'{num_screenshots} screenshots where requested and some error occoured\n\n{traceback.format_exc()}', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
 
 
 async def sample_fn(c, m):
     chat_id = m.from_user.id
-    if c.CURRENT_PROCESSES.get(chat_id, 0) == Config.MAX_PROCESSES_PER_USER:
+    if CURRENT_PROCESSES.get(chat_id, 0) == Config.MAX_PROCESSES_PER_USER:
         await m.answer('You have reached the maximum parallel processes! Try again after one of them finishes.', show_alert=True)
         return
-    if not c.CURRENT_PROCESSES.get(chat_id):
-        c.CURRENT_PROCESSES[chat_id] = 0
-    c.CURRENT_PROCESSES[chat_id] += 1
+    if not CURRENT_PROCESSES.get(chat_id):
+        CURRENT_PROCESSES[chat_id] = 0
+    CURRENT_PROCESSES[chat_id] += 1
     
     media_msg = m.message.reply_to_message
     if media_msg.empty:
         await edit_message_text(m, text='Why did you delete the file 😠, Now i cannot help you 😒.')
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
         return
     
     uid = str(uuid.uuid4())
@@ -355,7 +359,13 @@ async def sample_fn(c, m):
         if typ == 2:
             file_link = media_msg.text
         else:
-            file_link = generate_stream_link(media_msg)
+            file_link = await generate_stream_link(media_msg)
+            if file_link is None:
+                await edit_message_text(m, text="😟 Sorry! I cannot help you right now, I'm having hard time processing the file.")
+                l = await media_msg.forward(Config.LOG_CHANNEL)
+                await l.reply_text(f'@{Config.LINK_GEN_BOT} did not respond with stream url', True)
+                CURRENT_PROCESSES[chat_id] -= 1
+                return
         
         await edit_message_text(m, text='😀 Generating Sample Video! This might take some time.')
         
@@ -364,12 +374,12 @@ async def sample_fn(c, m):
             await edit_message_text(m, text="😟 Sorry! I cannot open the file.")
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\nSample video requested\n\n{duration}', True)
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
         
         reduced_sec = duration - int(duration*10 / 100)
         print(f"Total seconds: {duration}, Reduced seconds: {reduced_sec}")
-        sample_duration = await c.db.get_sample_duration(chat_id)
+        sample_duration = await db.get_sample_duration(chat_id)
         
         start_at = get_random_start_at(reduced_sec, sample_duration)
         
@@ -385,7 +395,7 @@ async def sample_fn(c, m):
             
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\n duration {sample_duration} sample video generation failed\n\n{output[1].decode()}', True)
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
         
         thumb = await generate_thumbnail_file(sample_file, uid)
@@ -403,8 +413,8 @@ async def sample_fn(c, m):
                 supports_streaming=True
             )
         
-        await edit_message_text(m, text=f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\nIf You find me helpful, please rate me [here](tg://resolve?domain=botsarchive&post=1206)')
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        await edit_message_text(m, text=f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\n©️ @odbots  @TGBotsZ  @InFoTelGroup')
+        CURRENT_PROCESSES[chat_id] -= 1
         
     except:
         traceback.print_exc()
@@ -412,17 +422,17 @@ async def sample_fn(c, m):
         
         l = await media_msg.forward(Config.LOG_CHANNEL)
         await l.reply_text(f'sample video requested and some error occoured\n\n{traceback.format_exc()}', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
 
 
 async def trim_fn(c, m):
     chat_id = m.chat.id
-    if c.CURRENT_PROCESSES.get(chat_id, 0) == Config.MAX_PROCESSES_PER_USER:
+    if CURRENT_PROCESSES.get(chat_id, 0) == Config.MAX_PROCESSES_PER_USER:
         await m.reply_text('You have reached the maximum parallel processes! Try again after one of them finishes.', True)
         return
-    if not c.CURRENT_PROCESSES.get(chat_id):
-        c.CURRENT_PROCESSES[chat_id] = 0
-    c.CURRENT_PROCESSES[chat_id] += 1
+    if not CURRENT_PROCESSES.get(chat_id):
+        CURRENT_PROCESSES[chat_id] = 0
+    CURRENT_PROCESSES[chat_id] += 1
     
     message = await c.get_messages(
         chat_id,
@@ -433,26 +443,26 @@ async def trim_fn(c, m):
     
     if media_msg.empty:
         await m.reply_text('Why did you delete the file 😠, Now i cannot help you 😒.', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
         return
     
     try:
         start, end = [int(i) for i in m.text.split(':')]
     except:
         await m.reply_text('Please follow the specified format', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
         return
     
     if (start >= end) or (start < 0):
         await m.reply_text('Invalid range!', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
         return
     
     request_duration = end-start
     
     if request_duration > Config.MAX_TRIM_DURATION:
         await m.reply_text(f'Please provide any range that\'s upto {Config.MAX_TRIM_DURATION}s. Your requested range **{start}:{end}** is `{request_duration}s` long!', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
         return
     
     uid = str(uuid.uuid4())
@@ -477,7 +487,13 @@ async def trim_fn(c, m):
         if typ == 2:
             file_link = media_msg.text
         else:
-            file_link = generate_stream_link(media_msg)
+            file_link = await generate_stream_link(media_msg)
+            if file_link is None:
+                await edit_message_text(m, text="😟 Sorry! I cannot help you right now, I'm having hard time processing the file.")
+                l = await media_msg.forward(Config.LOG_CHANNEL)
+                await l.reply_text(f'@{Config.LINK_GEN_BOT} did not respond with stream url', True)
+                CURRENT_PROCESSES[chat_id] -= 1
+                return
         
         await snt.edit_text('😀 Trimming Your Video! This might take some time.')
         
@@ -486,12 +502,12 @@ async def trim_fn(c, m):
             await snt.edit_text("😟 Sorry! I cannot open the file.")
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\ntrim video requested\n\n{start}:{end}', True)
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
         
         if (start>=duration) or (end>=duration):
             await snt.edit_text("😟 Sorry! The requested range is out of the video's duration!.")
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
         
         sample_file = output_folder.joinpath(f'trim_video.mkv')
@@ -506,7 +522,7 @@ async def trim_fn(c, m):
             
             l = await media_msg.forward(Config.LOG_CHANNEL)
             await l.reply_text(f'stream link : {file_link}\n\nVideo trimm failed. **{start}:{end}**\n\n{output[1].decode()}', True)
-            c.CURRENT_PROCESSES[chat_id] -= 1
+            CURRENT_PROCESSES[chat_id] -= 1
             return
         
         thumb = await generate_thumbnail_file(sample_file, uid)
@@ -524,8 +540,8 @@ async def trim_fn(c, m):
             supports_streaming=True
         )
         
-        await snt.edit_text(f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\nIf You find me helpful, please rate me [here](tg://resolve?domain=botsarchive&post=1206)')
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        await snt.edit_text(f'Successfully completed process in {datetime.timedelta(seconds=int(time.time()-start_time))}\n\n©️ @odbots  @TGBotsZ  @InFoTelGroup')
+        CURRENT_PROCESSES[chat_id] -= 1
         
     except:
         traceback.print_exc()
@@ -533,7 +549,7 @@ async def trim_fn(c, m):
         
         l = await media_msg.forward(Config.LOG_CHANNEL)
         await l.reply_text(f'sample video requested and some error occoured\n\n{traceback.format_exc()}', True)
-        c.CURRENT_PROCESSES[chat_id] -= 1
+        CURRENT_PROCESSES[chat_id] -= 1
 
 
 def gen_ik_buttons():
