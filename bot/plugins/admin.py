@@ -1,20 +1,20 @@
 import traceback
 import os
 
-from pyrogram import Filters
+from pyrogram import Client, Filters
 
-from ..config import Config
-from ..screenshotbot import ScreenShotBot
+from config import Config
+from bot import db
 
 
-@ScreenShotBot.on_message(Filters.private & Filters.command("status") & Filters.user(Config.AUTH_USERS))
+@Client.on_message(Filters.private & Filters.command("status") & Filters.user(Config.AUTH_USERS))
 async def sts(c, m):
     
-    total_users = await c.db.total_users_count()
+    total_users = await db.total_users_count()
     await m.reply_text(text=f"Total user(s) {total_users}", quote=True)
 
 
-@ScreenShotBot.on_message(Filters.private & Filters.command("ban_user") & Filters.user(Config.AUTH_USERS))
+@Client.on_message(Filters.private & Filters.command("ban_user") & Filters.user(Config.AUTH_USERS))
 async def ban(c, m):
     
     if len(m.command) == 1:
@@ -39,7 +39,7 @@ async def ban(c, m):
         except:
             traceback.print_exc()
             ban_log_text += f"\n\nUser notification failed! \n\n`{traceback.format_exc()}`"
-        await c.db.ban_user(user_id, ban_duration, ban_reason)
+        await db.ban_user(user_id, ban_duration, ban_reason)
         print(ban_log_text)
         await m.reply_text(
             ban_log_text,
@@ -53,7 +53,7 @@ async def ban(c, m):
         )
 
 
-@ScreenShotBot.on_message(Filters.private & Filters.command("unban_user") & Filters.user(Config.AUTH_USERS))
+@Client.on_message(Filters.private & Filters.command("unban_user") & Filters.user(Config.AUTH_USERS))
 async def unban(c, m):
     if len(m.command) == 1:
         await m.reply_text(
@@ -75,7 +75,7 @@ async def unban(c, m):
         except:
             traceback.print_exc()
             unban_log_text += f"\n\nUser notification failed! \n\n`{traceback.format_exc()}`"
-        await c.db.remove_ban(user_id)
+        await db.remove_ban(user_id)
         print(unban_log_text)
         await m.reply_text(
             unban_log_text,
@@ -89,9 +89,9 @@ async def unban(c, m):
         )
 
 
-@ScreenShotBot.on_message(Filters.private & Filters.command("banned_users") & Filters.user(Config.AUTH_USERS))
+@Client.on_message(Filters.private & Filters.command("banned_users") & Filters.user(Config.AUTH_USERS))
 async def _banned_usrs(c, m):
-    all_banned_users = await c.db.get_all_banned_users()
+    all_banned_users = await db.get_all_banned_users()
     banned_usr_count = 0
     text = ''
     async for banned_user in all_banned_users:
