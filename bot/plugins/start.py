@@ -1,14 +1,14 @@
-from pyrogram import Filters, InlineKeyboardMarkup, InlineKeyboardButton
+from pyrogram import Client, Filters, InlineKeyboardMarkup, InlineKeyboardButton
 
-from ..config import Config
-from ..screenshotbot import ScreenShotBot
+from config import Config
+from bot import db
 
 
-@ScreenShotBot.on_message(Filters.private & Filters.command("start"))
+@Client.on_message(Filters.private & Filters.command("start"))
 async def start(c, m):
     
-    if not await c.db.is_user_exist(m.chat.id):
-        await c.db.add_user(m.chat.id)
+    if not await db.is_user_exist(m.chat.id):
+        await db.add_user(m.chat.id)
         await c.send_message(
             Config.LOG_CHANNEL,
             f"New User [{m.from_user.first_name}](tg://user?id={m.chat.id}) started."
@@ -20,11 +20,11 @@ async def start(c, m):
         reply_markup=InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton('Source 😒', url='https://github.com/odysseusmax/animated-lamp'),
-                    InlineKeyboardButton('Project Channel', url='https://t.me/odbots')
+                    InlineKeyboardButton('📌  Support Group', url='https://t.me/InFoTelGroup'),
+                    InlineKeyboardButton('🔖  Updates Channel', url='https://t.me/TGBotsZ')
                 ],
                 [
-                    InlineKeyboardButton('My Father', url='https://t.me/odysseusmax')
+                    InlineKeyboardButton('Source Code', url='https://github.com/TGExplore/Screenshot-Bot')
                 ]
             ]
         )
