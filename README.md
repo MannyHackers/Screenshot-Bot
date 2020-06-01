@@ -4,7 +4,7 @@
 ## Description
 
 An attempt to implement the screenshot generation of telegram files without downloading the entire file. Live version can be found here [@ScreenShot Bot](https://tx.me/ScreenShotTGBot).
-> Screenshot Generation with Custom Watermark.  Sample Video Generation.  Trim video.
+> Screenshot Generation with Custom Watermark---Sample Video Generation---Trim video.
 
 ## Installation Guide
 
