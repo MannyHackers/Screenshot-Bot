@@ -1,4 +1,4 @@
-# [Screenshotit_bot](https://tx.me/screenshotit_bot)
+# [ScreenShot Bot](https://tx.me/ScreenShotTGBot)
 > Telegram Bot For Screenshot Generation.
 
 ## Description
@@ -10,6 +10,8 @@ An attempt to implement the screenshot generation of telegram files without down
 ## You can also tap the Deploy To Heroku button below to deploy straight to Heroku!
 
 [![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://www.heroku.com/deploy?template=https://github.com/TGExplore/Screenshot-Bot/tree/Changed-to-USER-Friendly)
+
+### Watch our YouTube video for more details -
 
 ### Prerequisites
 * FFmpeg.
@@ -50,6 +52,10 @@ Properly setup the environment variables or populate `config.py` with the values
 * `MAX_TRIM_DURATION`(optional) - Maximum allowed seconds for trimming. Defaults to 600.
 * `TRACK_CHANNEL`(optional) - User activity tracking channel's id. Only needed if you want to track and block any user. Disabled by default.
 * `SLOW_SPEED_DELAY`(optional) - Delay required between each request. Defaults to 15s.
+
+### Use online terminal for creating User Session String
+
+[![Run](https://img.shields.io/badge/Run%20Online-Black)](https://usersessionstring.tgexplore.repl.run/)
 
 ### Run bot
 `$ python3 -m bot`
